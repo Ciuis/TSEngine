@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "module": "None",
+    "target": "es5",
+    "sourceMap": true,
+    "outFile": "app.js"
+  },
+  "exclude": [
+    "node_modules"
+  ]
+}
