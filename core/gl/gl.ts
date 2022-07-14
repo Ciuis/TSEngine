@@ -8,7 +8,6 @@ namespace TSEngine {
     /**
      * Responsible for setting up a WebGL rendering context.
      */
-
     export class GLUtilities {
 
         /**

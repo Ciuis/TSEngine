@@ -1,8 +1,13 @@
+var engine: TSEngine.Engine;
+
 /**
  * The main entry point
  */
-
 window.onload = function () {
-    let engine = new TSEngine.Engine();
+    engine = new TSEngine.Engine();
     engine.start();
+}
+
+window.onresize = function () {
+    engine.resize();
 }
