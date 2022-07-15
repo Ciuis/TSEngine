@@ -28,7 +28,11 @@ var TSEngine;
             TSEngine.gl.clearColor(0, 0, 0, 1);
             this.loadShaders();
             this._shader.use();
-            this.createBuffer();
+            // Load
+            this._projection = TSEngine.Mat4x4.orthographic(0, this._canvas.width, 0, this._canvas.height, -100.0, 100.0);
+            this._sprite = new TSEngine.Sprite("test");
+            this._sprite.load();
+            this._sprite.position.x = 200;
             this.resize();
             this.mainLoop();
         };
@@ -39,38 +43,23 @@ var TSEngine;
             if (this._canvas !== undefined) {
                 this._canvas.width = window.innerWidth;
                 this._canvas.height = window.innerHeight;
-                TSEngine.gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+                TSEngine.gl.viewport(-1, 1, 1, -1);
             }
         };
         Engine.prototype.mainLoop = function () {
             TSEngine.gl.clear(TSEngine.gl.COLOR_BUFFER_BIT);
-            //Set uniforms
+            // Set uniforms.
             var colorPosition = this._shader.getUniformLocation("u_color");
             TSEngine.gl.uniform4f(colorPosition, 1, 0.5, 0, 1);
-            this._buffer.bind();
-            this._buffer.draw();
-            TSEngine.gl.drawArrays(TSEngine.gl.TRIANGLES, 0, 3);
+            var projectionPosition = this._shader.getUniformLocation("u_projection");
+            TSEngine.gl.uniformMatrix4fv(projectionPosition, false, new Float32Array(this._projection.data));
+            var modelLocation = this._shader.getUniformLocation("u_model");
+            TSEngine.gl.uniformMatrix4fv(modelLocation, false, new Float32Array(TSEngine.Mat4x4.translation(this._sprite.position).data));
+            this._sprite.draw();
             requestAnimationFrame(this.mainLoop.bind(this));
         };
-        Engine.prototype.createBuffer = function () {
-            this._buffer = new TSEngine.GLBuffer(3);
-            var positionAttrib = new TSEngine.AttribInfo();
-            positionAttrib.loc = this._shader.getAttribLocation("a_position");
-            positionAttrib.offset = 0;
-            positionAttrib.size = 3;
-            this._buffer.addAttribLocation(positionAttrib);
-            var vertices = [
-                //x, y, z
-                0, 0, 0,
-                0, 0.5, 0,
-                0.5, 0.5, 0
-            ];
-            this._buffer.pushBackData(vertices);
-            this._buffer.upload();
-            this._buffer.unbind();
-        };
         Engine.prototype.loadShaders = function () {
-            var vertexShaderSource = "\n                        attribute vec3 a_position;\n                          \n                        void main() {\n                            gl_Position = vec4(a_position, 1.0);\n                        }";
+            var vertexShaderSource = "\n                        attribute vec3 a_position;\n                        \n                        uniform mat4 u_projection;\n                        uniform mat4 u_model;\n                          \n                        void main() {\n                            gl_Position = u_projection * u_model * vec4(a_position, 1.0);\n                        }";
             var fragmentShaderSource = "\n                        precision mediump float;\n                        \n                        uniform vec4 u_color;\n                        \n                        void main() {\n                            gl_FragColor = u_color;\n                        }";
             this._shader = new TSEngine.Shader("base", vertexShaderSource, fragmentShaderSource);
         };
@@ -111,107 +100,6 @@ var TSEngine;
         return GLUtilities;
     }());
     TSEngine.GLUtilities = GLUtilities;
-})(TSEngine || (TSEngine = {}));
-var TSEngine;
-(function (TSEngine) {
-    /**
-     * WebGL shader
-     */
-    var Shader = /** @class */ (function () {
-        /**
-         * Creates new shader.
-         * @param name The name of shader.
-         * @param vertexSrc The source of vertex shader.
-         * @param fragmentSrc The source of fragment shader.
-         */
-        function Shader(name, vertexSrc, fragmentSrc) {
-            this._attrib = {};
-            this._uniforms = {};
-            var vertexShader = this.loadShader(vertexSrc, TSEngine.gl.VERTEX_SHADER);
-            var fragmentShader = this.loadShader(fragmentSrc, TSEngine.gl.FRAGMENT_SHADER);
-            this.createProgram(vertexShader, fragmentShader);
-            this.detectAttributes();
-            this.detectUniforms();
-        }
-        Object.defineProperty(Shader.prototype, "name", {
-            /**
-             * Name of shader.
-             */
-            get: function () {
-                return this._name;
-            },
-            enumerable: false,
-            configurable: true
-        });
-        /**
-         * Use shader.
-         */
-        Shader.prototype.use = function () {
-            TSEngine.gl.useProgram(this._program);
-        };
-        /**
-         * Gets location of attribute with provided name.
-         * @param name The name of attribute whose location we retrieve.
-         */
-        Shader.prototype.getAttribLocation = function (name) {
-            if (this._attrib[name] === undefined) {
-                throw new Error("Unable find attribute named '".concat(name, "' in shader named '").concat(this._name, "'"));
-            }
-            return this._attrib[name];
-        };
-        /**
-         * Gets location of uniform with provided name.
-         * @param name The name of uniform whose location we retrieve.
-         */
-        Shader.prototype.getUniformLocation = function (name) {
-            if (this._uniforms[name] === undefined) {
-                throw new Error("Unable find uniform named '".concat(name, "' in shader named '").concat(this._name, "'"));
-            }
-            return this._uniforms[name];
-        };
-        Shader.prototype.loadShader = function (source, shaderType) {
-            var shader = TSEngine.gl.createShader(shaderType);
-            TSEngine.gl.shaderSource(shader, source);
-            TSEngine.gl.compileShader(shader);
-            var error = TSEngine.gl.getShaderInfoLog(shader);
-            if (error !== "") {
-                throw new Error("Error compiling shader '" + this._name + "' : " + error);
-            }
-            return shader;
-        };
-        Shader.prototype.createProgram = function (vertexShader, fragmentShader) {
-            this._program = TSEngine.gl.createProgram();
-            TSEngine.gl.attachShader(this._program, vertexShader);
-            TSEngine.gl.attachShader(this._program, fragmentShader);
-            TSEngine.gl.linkProgram(this._program);
-            var error = TSEngine.gl.getProgramInfoLog(this._program);
-            if (error !== "") {
-                throw new Error("Error linking shader '" + this._name + "' : " + error);
-            }
-        };
-        Shader.prototype.detectAttributes = function () {
-            var attribCount = TSEngine.gl.getProgramParameter(this._program, TSEngine.gl.ACTIVE_ATTRIBUTES);
-            for (var i = 0; i < attribCount; ++i) {
-                var info = TSEngine.gl.getActiveAttrib(this._program, i);
-                if (!info) {
-                    break;
-                }
-                this._attrib[info.name] = TSEngine.gl.getAttribLocation(this._program, info.name);
-            }
-        };
-        Shader.prototype.detectUniforms = function () {
-            var uniformCount = TSEngine.gl.getProgramParameter(this._program, TSEngine.gl.ACTIVE_UNIFORMS);
-            for (var i = 0; i < uniformCount; ++i) {
-                var info = TSEngine.gl.getActiveUniform(this._program, i);
-                if (!info) {
-                    break;
-                }
-                this._uniforms[info.name] = TSEngine.gl.getUniformLocation(this._program, info.name);
-            }
-        };
-        return Shader;
-    }());
-    TSEngine.Shader = Shader;
 })(TSEngine || (TSEngine = {}));
 var TSEngine;
 (function (TSEngine) {
@@ -358,5 +246,244 @@ var TSEngine;
         return GLBuffer;
     }());
     TSEngine.GLBuffer = GLBuffer;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    /**
+     * WebGL shader
+     */
+    var Shader = /** @class */ (function () {
+        /**
+         * Creates new shader.
+         * @param name The name of shader.
+         * @param vertexSrc The source of vertex shader.
+         * @param fragmentSrc The source of fragment shader.
+         */
+        function Shader(name, vertexSrc, fragmentSrc) {
+            this._attrib = {};
+            this._uniforms = {};
+            var vertexShader = this.loadShader(vertexSrc, TSEngine.gl.VERTEX_SHADER);
+            var fragmentShader = this.loadShader(fragmentSrc, TSEngine.gl.FRAGMENT_SHADER);
+            this.createProgram(vertexShader, fragmentShader);
+            this.detectAttributes();
+            this.detectUniforms();
+        }
+        Object.defineProperty(Shader.prototype, "name", {
+            /**
+             * Name of shader.
+             */
+            get: function () {
+                return this._name;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        /**
+         * Use shader.
+         */
+        Shader.prototype.use = function () {
+            TSEngine.gl.useProgram(this._program);
+        };
+        /**
+         * Gets location of attribute with provided name.
+         * @param name The name of attribute whose location we retrieve.
+         */
+        Shader.prototype.getAttribLocation = function (name) {
+            if (this._attrib[name] === undefined) {
+                throw new Error("Unable find attribute named '".concat(name, "' in shader named '").concat(this._name, "'"));
+            }
+            return this._attrib[name];
+        };
+        /**
+         * Gets location of uniform with provided name.
+         * @param name The name of uniform whose location we retrieve.
+         */
+        Shader.prototype.getUniformLocation = function (name) {
+            if (this._uniforms[name] === undefined) {
+                throw new Error("Unable find uniform named '".concat(name, "' in shader named '").concat(this._name, "'"));
+            }
+            return this._uniforms[name];
+        };
+        Shader.prototype.loadShader = function (source, shaderType) {
+            var shader = TSEngine.gl.createShader(shaderType);
+            TSEngine.gl.shaderSource(shader, source);
+            TSEngine.gl.compileShader(shader);
+            var error = TSEngine.gl.getShaderInfoLog(shader);
+            if (error !== "") {
+                throw new Error("Error compiling shader '" + this._name + "' : " + error);
+            }
+            return shader;
+        };
+        Shader.prototype.createProgram = function (vertexShader, fragmentShader) {
+            this._program = TSEngine.gl.createProgram();
+            TSEngine.gl.attachShader(this._program, vertexShader);
+            TSEngine.gl.attachShader(this._program, fragmentShader);
+            TSEngine.gl.linkProgram(this._program);
+            var error = TSEngine.gl.getProgramInfoLog(this._program);
+            if (error !== "") {
+                throw new Error("Error linking shader '" + this._name + "' : " + error);
+            }
+        };
+        Shader.prototype.detectAttributes = function () {
+            var attribCount = TSEngine.gl.getProgramParameter(this._program, TSEngine.gl.ACTIVE_ATTRIBUTES);
+            for (var i = 0; i < attribCount; ++i) {
+                var info = TSEngine.gl.getActiveAttrib(this._program, i);
+                if (!info) {
+                    break;
+                }
+                this._attrib[info.name] = TSEngine.gl.getAttribLocation(this._program, info.name);
+            }
+        };
+        Shader.prototype.detectUniforms = function () {
+            var uniformCount = TSEngine.gl.getProgramParameter(this._program, TSEngine.gl.ACTIVE_UNIFORMS);
+            for (var i = 0; i < uniformCount; ++i) {
+                var info = TSEngine.gl.getActiveUniform(this._program, i);
+                if (!info) {
+                    break;
+                }
+                this._uniforms[info.name] = TSEngine.gl.getUniformLocation(this._program, info.name);
+            }
+        };
+        return Shader;
+    }());
+    TSEngine.Shader = Shader;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var Sprite = /** @class */ (function () {
+        function Sprite(name, width, height) {
+            if (width === void 0) { width = 100; }
+            if (height === void 0) { height = 100; }
+            this.position = new TSEngine.Vec3();
+            this._name = name;
+            this._width = width;
+            this._height = height;
+        }
+        Sprite.prototype.load = function () {
+            this._buffer = new TSEngine.GLBuffer(3);
+            var positionAttrib = new TSEngine.AttribInfo();
+            positionAttrib.loc = 0;
+            positionAttrib.offset = 0;
+            positionAttrib.size = 3;
+            this._buffer.addAttribLocation(positionAttrib);
+            var vertices = [
+                //x, y, z
+                0.0, 0.0, 0.0,
+                0.0, this._height, 0.0,
+                this._width, this._height, 0.0,
+                this._width, this._height, 0.0,
+                this._width, 0.0, 0.0,
+                0.0, 0.0, 0.0
+            ];
+            this._buffer.pushBackData(vertices);
+            this._buffer.upload();
+            this._buffer.unbind();
+        };
+        Sprite.prototype.update = function (time) {
+        };
+        Sprite.prototype.draw = function () {
+            this._buffer.bind();
+            this._buffer.draw();
+        };
+        return Sprite;
+    }());
+    TSEngine.Sprite = Sprite;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var Mat4x4 = /** @class */ (function () {
+        function Mat4x4() {
+            this._data = [];
+            this._data = [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0
+            ];
+        }
+        Object.defineProperty(Mat4x4.prototype, "data", {
+            get: function () {
+                return this._data;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Mat4x4.identity = function () {
+            return new Mat4x4();
+        };
+        Mat4x4.orthographic = function (left, right, bottom, top, nearClip, farClip) {
+            var m = new Mat4x4();
+            var lr = 1.0 / (left - right);
+            var bt = 1.0 / (bottom - top);
+            var nf = 1.0 / (nearClip - farClip);
+            m._data[0] = -2.0 * lr;
+            m._data[5] = -2.0 * bt;
+            m._data[10] = 2.0 * nf;
+            m._data[12] = (left + right) * lr;
+            m._data[13] = (top + bottom) * bt;
+            m._data[14] = (farClip + nearClip) * nf;
+            return m;
+        };
+        Mat4x4.translation = function (position) {
+            var m = new Mat4x4();
+            m._data[12] = position.x;
+            m._data[13] = position.y;
+            m._data[14] = position.z;
+            return m;
+        };
+        return Mat4x4;
+    }());
+    TSEngine.Mat4x4 = Mat4x4;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var Vec3 = /** @class */ (function () {
+        function Vec3(x, y, z) {
+            if (x === void 0) { x = 0; }
+            if (y === void 0) { y = 0; }
+            if (z === void 0) { z = 0; }
+            this._x = x;
+            this._y = y;
+            this._z = z;
+        }
+        Object.defineProperty(Vec3.prototype, "x", {
+            get: function () {
+                return this._x;
+            },
+            set: function (value) {
+                this._x = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Vec3.prototype, "y", {
+            get: function () {
+                return this._y;
+            },
+            set: function (value) {
+                this._y = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Vec3.prototype, "z", {
+            get: function () {
+                return this._z;
+            },
+            set: function (value) {
+                this._z = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Vec3.prototype.toArray = function () {
+            return [this._x, this._y, this._z];
+        };
+        Vec3.prototype.toFloat32Array = function () {
+            return new Float32Array(this.toArray());
+        };
+        return Vec3;
+    }());
+    TSEngine.Vec3 = Vec3;
 })(TSEngine || (TSEngine = {}));
 //# sourceMappingURL=app.js.map
