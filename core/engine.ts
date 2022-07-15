@@ -10,7 +10,7 @@ namespace TSEngine {
         private _canvas: HTMLCanvasElement;
         private _shader: Shader;
 
-        private _buffer: WebGLBuffer;
+        private _buffer: GLBuffer;
 
         /**
          * Creates new engine.
@@ -50,12 +50,12 @@ namespace TSEngine {
         private mainLoop(): void {
             gl.clear( gl.COLOR_BUFFER_BIT );
 
-            gl.bindBuffer( gl.ARRAY_BUFFER, this._buffer );
+            //Set uniforms
+            let colorPosition = this._shader.getUniformLocation( "u_color" );
+            gl.uniform4f( colorPosition, 1, 0.5, 0, 1);
 
-            let positionLocation = this._shader.getAttribLocation( "a_position" );
-
-            gl.vertexAttribPointer( 0, 3, gl.FLOAT, false, 0, 0 );
-            gl.enableVertexAttribArray( positionLocation );
+            this._buffer.bind();
+            this._buffer.draw();
 
             gl.drawArrays( gl.TRIANGLES, 0, 3 );
 
@@ -63,7 +63,13 @@ namespace TSEngine {
         }
 
         private createBuffer(): void {
-            this._buffer = gl.createBuffer();
+            this._buffer = new GLBuffer( 3 );
+
+            let positionAttrib = new AttribInfo();
+            positionAttrib.loc = this._shader.getAttribLocation( "a_position" );
+            positionAttrib.offset = 0;
+            positionAttrib.size = 3;
+            this._buffer.addAttribLocation( positionAttrib );
 
             let vertices = [
                 //x, y, z
@@ -72,11 +78,9 @@ namespace TSEngine {
                 0.5, 0.5, 0
             ];
 
-            gl.bindBuffer( gl.ARRAY_BUFFER, this._buffer );
-            gl.bufferData( gl.ARRAY_BUFFER, new Float32Array( vertices ), gl.STATIC_DRAW );
-
-            gl.bindBuffer( gl.ARRAY_BUFFER, undefined );
-            gl.disableVertexAttribArray( 0 );
+            this._buffer.pushBackData( vertices );
+            this._buffer.upload();
+            this._buffer.unbind();
         }
 
         private loadShaders(): void {
@@ -89,8 +93,10 @@ namespace TSEngine {
             let fragmentShaderSource = `
                         precision mediump float;
                         
+                        uniform vec4 u_color;
+                        
                         void main() {
-                            gl_FragColor = vec4(1.0);
+                            gl_FragColor = u_color;
                         }`;
             this._shader = new Shader( "base", vertexShaderSource, fragmentShaderSource );
         }
