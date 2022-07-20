@@ -25,14 +25,18 @@ var TSEngine;
          */
         Engine.prototype.start = function () {
             this._canvas = TSEngine.GLUtilities.init();
+            TSEngine.AssetManager.init();
             TSEngine.gl.clearColor(0, 0, 0, 1);
-            this.loadShaders();
-            this._shader.use();
+            this._basicShader = new TSEngine.BasicShader();
+            this._basicShader.use();
+            //Load materials
+            TSEngine.MaterialManager.registerMaterial(new TSEngine.Material("crate", "assets/textures/crate.png", new TSEngine.Color(0, 128, 255, 255)));
             // Load
-            this._projection = TSEngine.Mat4x4.orthographic(0, this._canvas.width, 0, this._canvas.height, -100.0, 100.0);
-            this._sprite = new TSEngine.Sprite("test");
+            this._projection = TSEngine.Mat4x4.orthographic(0, this._canvas.width, this._canvas.height, 0, -100.0, 100.0);
+            this._sprite = new TSEngine.Sprite("test", "crate");
             this._sprite.load();
             this._sprite.position.x = 200;
+            this._sprite.position.y = 100;
             this.resize();
             this.mainLoop();
         };
@@ -43,29 +47,133 @@ var TSEngine;
             if (this._canvas !== undefined) {
                 this._canvas.width = window.innerWidth;
                 this._canvas.height = window.innerHeight;
-                TSEngine.gl.viewport(-1, 1, 1, -1);
+                TSEngine.gl.viewport(0, 0, TSEngine.gl.canvas.width, TSEngine.gl.canvas.height);
+                this._projection = TSEngine.Mat4x4.orthographic(0, this._canvas.width, this._canvas.height, 0, -100.0, 100.0);
             }
         };
         Engine.prototype.mainLoop = function () {
+            TSEngine.MessageBus.update(0);
             TSEngine.gl.clear(TSEngine.gl.COLOR_BUFFER_BIT);
             // Set uniforms.
-            var colorPosition = this._shader.getUniformLocation("u_color");
-            TSEngine.gl.uniform4f(colorPosition, 1, 0.5, 0, 1);
-            var projectionPosition = this._shader.getUniformLocation("u_projection");
+            var projectionPosition = this._basicShader.getUniformLocation("u_projection");
             TSEngine.gl.uniformMatrix4fv(projectionPosition, false, new Float32Array(this._projection.data));
-            var modelLocation = this._shader.getUniformLocation("u_model");
-            TSEngine.gl.uniformMatrix4fv(modelLocation, false, new Float32Array(TSEngine.Mat4x4.translation(this._sprite.position).data));
-            this._sprite.draw();
+            this._sprite.draw(this._basicShader);
             requestAnimationFrame(this.mainLoop.bind(this));
-        };
-        Engine.prototype.loadShaders = function () {
-            var vertexShaderSource = "\n                        attribute vec3 a_position;\n                        \n                        uniform mat4 u_projection;\n                        uniform mat4 u_model;\n                          \n                        void main() {\n                            gl_Position = u_projection * u_model * vec4(a_position, 1.0);\n                        }";
-            var fragmentShaderSource = "\n                        precision mediump float;\n                        \n                        uniform vec4 u_color;\n                        \n                        void main() {\n                            gl_FragColor = u_color;\n                        }";
-            this._shader = new TSEngine.Shader("base", vertexShaderSource, fragmentShaderSource);
         };
         return Engine;
     }());
     TSEngine.Engine = Engine;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    TSEngine.MESSAGE_ASSET_LOADER_ASSET_LOADED = "MESSAGE_ASSET_LOADER_ASSET_LOADED::";
+    /**
+     * Manage assets into engine.
+     */
+    var AssetManager = /** @class */ (function () {
+        /** Private to enforce static method calls and prevent instantiation. */
+        function AssetManager() {
+        }
+        /** Initialize manager */
+        AssetManager.init = function () {
+            AssetManager._loaders.push(new TSEngine.ImageAssetLoader());
+        };
+        /**
+         * Register provided loader with asset manager.
+         * @param loader The loader to register.
+         */
+        AssetManager.registerLoader = function (loader) {
+            AssetManager._loaders.push(loader);
+        };
+        /** Callback made on asset loader when asset is loaded. */
+        AssetManager.onAssetLoaded = function (asset) {
+            AssetManager._loadedAssets[asset.name] = asset;
+            TSEngine.Message.send(TSEngine.MESSAGE_ASSET_LOADER_ASSET_LOADED + asset.name, this, asset);
+        };
+        /**
+         * Attempts to load asset using a registered asset loader.
+         * @param assetName The name/url of asset to be loaded.
+         */
+        AssetManager.loadAsset = function (assetName) {
+            var extension = assetName.split('.').pop().toLowerCase();
+            for (var _i = 0, _a = AssetManager._loaders; _i < _a.length; _i++) {
+                var l = _a[_i];
+                if (l.supportedExtensions.indexOf(extension) !== -1) {
+                    l.loadAsset(assetName);
+                    return;
+                }
+            }
+            console.warn("Unable to load asset with extension " + extension + " because there is no loader associated with it.");
+        };
+        /**
+         * Indicates if an asset with provided name has been loaded.
+         * @param assetName The name to check.
+         */
+        AssetManager.isAssetLoaded = function (assetName) {
+            return AssetManager._loadedAssets[assetName] !== undefined;
+        };
+        AssetManager.getAsset = function (assetName) {
+            if (AssetManager._loadedAssets[assetName] !== undefined) {
+                return AssetManager._loadedAssets[assetName];
+            }
+            else {
+                AssetManager.loadAsset(assetName);
+            }
+            return undefined;
+        };
+        AssetManager._loaders = [];
+        AssetManager._loadedAssets = {};
+        return AssetManager;
+    }());
+    TSEngine.AssetManager = AssetManager;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var ImageAsset = /** @class */ (function () {
+        function ImageAsset(name, data) {
+            this.name = name;
+            this.data = data;
+        }
+        Object.defineProperty(ImageAsset.prototype, "width", {
+            get: function () {
+                return this.data.width;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(ImageAsset.prototype, "height", {
+            get: function () {
+                return this.data.height;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        return ImageAsset;
+    }());
+    TSEngine.ImageAsset = ImageAsset;
+    var ImageAssetLoader = /** @class */ (function () {
+        function ImageAssetLoader() {
+        }
+        Object.defineProperty(ImageAssetLoader.prototype, "supportedExtensions", {
+            get: function () {
+                return ["png", "gif", "jpg"];
+            },
+            enumerable: false,
+            configurable: true
+        });
+        ImageAssetLoader.prototype.loadAsset = function (assetName) {
+            var image = new Image();
+            image.onload = this.onImageLoaded.bind(this, assetName, image);
+            image.src = assetName;
+        };
+        ImageAssetLoader.prototype.onImageLoaded = function (assetName, image) {
+            console.log("onImageLoaded: assetName/image", assetName, image);
+            var asset = new ImageAsset(assetName, image);
+            TSEngine.AssetManager.onAssetLoaded(asset);
+        };
+        return ImageAssetLoader;
+    }());
+    TSEngine.ImageAssetLoader = ImageAssetLoader;
 })(TSEngine || (TSEngine = {}));
 var TSEngine;
 (function (TSEngine) {
@@ -256,17 +364,11 @@ var TSEngine;
         /**
          * Creates new shader.
          * @param name The name of shader.
-         * @param vertexSrc The source of vertex shader.
-         * @param fragmentSrc The source of fragment shader.
          */
-        function Shader(name, vertexSrc, fragmentSrc) {
+        function Shader(name) {
             this._attrib = {};
             this._uniforms = {};
-            var vertexShader = this.loadShader(vertexSrc, TSEngine.gl.VERTEX_SHADER);
-            var fragmentShader = this.loadShader(fragmentSrc, TSEngine.gl.FRAGMENT_SHADER);
-            this.createProgram(vertexShader, fragmentShader);
-            this.detectAttributes();
-            this.detectUniforms();
+            this._name = name;
         }
         Object.defineProperty(Shader.prototype, "name", {
             /**
@@ -303,6 +405,13 @@ var TSEngine;
                 throw new Error("Unable find uniform named '".concat(name, "' in shader named '").concat(this._name, "'"));
             }
             return this._uniforms[name];
+        };
+        Shader.prototype.load = function (vertexSrc, fragmentSrc) {
+            var vertexShader = this.loadShader(vertexSrc, TSEngine.gl.VERTEX_SHADER);
+            var fragmentShader = this.loadShader(fragmentSrc, TSEngine.gl.FRAGMENT_SHADER);
+            this.createProgram(vertexShader, fragmentShader);
+            this.detectAttributes();
+            this.detectUniforms();
         };
         Shader.prototype.loadShader = function (source, shaderType) {
             var shader = TSEngine.gl.createShader(shaderType);
@@ -348,46 +457,477 @@ var TSEngine;
     }());
     TSEngine.Shader = Shader;
 })(TSEngine || (TSEngine = {}));
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
 var TSEngine;
 (function (TSEngine) {
+    var BasicShader = /** @class */ (function (_super) {
+        __extends(BasicShader, _super);
+        function BasicShader() {
+            var _this = _super.call(this, "basic") || this;
+            _this.load(_this.getVertexSource(), _this.getFragmentSource());
+            return _this;
+        }
+        BasicShader.prototype.getVertexSource = function () {
+            return "\n                        attribute vec3 a_position;\n                        attribute vec2 a_texCoord;\n                        \n                        uniform mat4 u_projection;\n                        uniform mat4 u_model;\n                        \n                        varying vec2 v_texCoord;\n                          \n                        void main() {\n                            gl_Position = u_projection * u_model * vec4(a_position, 1.0);\n                            v_texCoord = a_texCoord;\n                        }";
+        };
+        BasicShader.prototype.getFragmentSource = function () {
+            return "\n                        precision mediump float;\n                        \n                        uniform vec4 u_tint;\n                        uniform sampler2D u_diffuse;\n                        \n                        varying vec2 v_texCoord;\n                        \n                        void main() {\n                            gl_FragColor = u_tint * texture2D(u_diffuse, v_texCoord);\n                        }";
+        };
+        return BasicShader;
+    }(TSEngine.Shader));
+    TSEngine.BasicShader = BasicShader;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var Color = /** @class */ (function () {
+        function Color(r, g, b, a) {
+            if (r === void 0) { r = 255; }
+            if (g === void 0) { g = 255; }
+            if (b === void 0) { b = 255; }
+            if (a === void 0) { a = 255; }
+            this._r = r;
+            this._g = g;
+            this._b = b;
+            this._a = a;
+        }
+        Object.defineProperty(Color.prototype, "r", {
+            // r
+            get: function () {
+                return this._r;
+            },
+            set: function (value) {
+                this._r = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "rFloat", {
+            get: function () {
+                return this._r / 255.0;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "g", {
+            // g
+            get: function () {
+                return this._g;
+            },
+            set: function (value) {
+                this._g = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "gFloat", {
+            get: function () {
+                return this._g / 255.0;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "b", {
+            //b
+            get: function () {
+                return this._b;
+            },
+            set: function (value) {
+                this._b = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "bFloat", {
+            get: function () {
+                return this._b / 255.0;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "a", {
+            //a
+            get: function () {
+                return this._a;
+            },
+            set: function (value) {
+                this._a = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Color.prototype, "aFloat", {
+            get: function () {
+                return this._a / 255.0;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Color.prototype.toArray = function () {
+            return [this._r, this._g, this._b, this._a];
+        };
+        Color.prototype.toFloatArray = function () {
+            return [this._r / 255.0, this._g / 255.0, this._b / 255.0, this._a / 255.0];
+        };
+        Color.prototype.toFloat32Array = function () {
+            return new Float32Array(this.toFloatArray());
+        };
+        Color.white = function () {
+            return new Color(255, 255, 255, 255);
+        };
+        Color.black = function () {
+            return new Color(0, 0, 0, 255);
+        };
+        Color.red = function () {
+            return new Color(255, 0, 0, 255);
+        };
+        Color.green = function () {
+            return new Color(0, 255, 0, 255);
+        };
+        Color.blue = function () {
+            return new Color(0, 0, 255, 255);
+        };
+        return Color;
+    }());
+    TSEngine.Color = Color;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var Material = /** @class */ (function () {
+        function Material(name, diffuseTextureName, tint) {
+            this._name = name;
+            this._diffuseTextureName = diffuseTextureName;
+            this._tint = tint;
+            if (this._diffuseTextureName !== undefined) {
+                this._diffuseTexture = TSEngine.TextureManager.getTexture(this._diffuseTextureName);
+            }
+        }
+        Object.defineProperty(Material.prototype, "name", {
+            get: function () {
+                return this._name;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Material.prototype, "diffuseTextureName", {
+            get: function () {
+                return this._diffuseTextureName;
+            },
+            set: function (value) {
+                if (this._diffuseTexture !== undefined) {
+                    TSEngine.TextureManager.releaseTexture(this._diffuseTextureName);
+                }
+                this._diffuseTextureName = value;
+                if (this._diffuseTextureName !== undefined) {
+                    this._diffuseTexture = TSEngine.TextureManager.getTexture(this._diffuseTextureName);
+                }
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Material.prototype, "diffuseTexture", {
+            get: function () {
+                return this._diffuseTexture;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Material.prototype, "tint", {
+            get: function () {
+                return this._tint;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Material.prototype.destroy = function () {
+            TSEngine.TextureManager.releaseTexture(this._diffuseTextureName);
+            this._diffuseTexture = undefined;
+        };
+        return Material;
+    }());
+    TSEngine.Material = Material;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var MaterialReferenceNode = /** @class */ (function () {
+        function MaterialReferenceNode(material) {
+            this.referenceCount = 1;
+            this.material = material;
+        }
+        return MaterialReferenceNode;
+    }());
+    var MaterialManager = /** @class */ (function () {
+        function MaterialManager() {
+        }
+        MaterialManager.registerMaterial = function (material) {
+            if (MaterialManager._materials[material.name] === undefined) {
+                MaterialManager._materials[material.name] = new MaterialReferenceNode(material);
+            }
+        };
+        MaterialManager.getMaterial = function (materialName) {
+            if (MaterialManager._materials[materialName] === undefined) {
+                return undefined;
+            }
+            else {
+                MaterialManager._materials[materialName].referenceCount++;
+                return MaterialManager._materials[materialName].material;
+            }
+        };
+        MaterialManager.releaseMaterial = function (materialName) {
+            if (MaterialManager._materials[materialName] === undefined) {
+                console.warn("Cannot release  material which has not been registered");
+            }
+            else {
+                MaterialManager._materials[materialName].referenceCount--;
+                if (MaterialManager._materials[materialName].referenceCount < 1) {
+                    MaterialManager._materials[materialName].material.destroy();
+                    MaterialManager._materials[materialName].material = undefined;
+                    delete MaterialManager._materials[materialName];
+                }
+            }
+        };
+        MaterialManager._materials = {};
+        return MaterialManager;
+    }());
+    TSEngine.MaterialManager = MaterialManager;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    /**
+     * 2-d sprite to be drawn on the screen.
+     */
     var Sprite = /** @class */ (function () {
-        function Sprite(name, width, height) {
+        /**
+         * Creating new sprite.
+         * @param name The name of sprite.
+         * @param materialName The name of material to use in sprite.
+         * @param width The width of sprite.
+         * @param height The height of sprite.
+         */
+        function Sprite(name, materialName, width, height) {
             if (width === void 0) { width = 100; }
             if (height === void 0) { height = 100; }
+            /**
+             * Position on the screen..
+             */
             this.position = new TSEngine.Vec3();
             this._name = name;
             this._width = width;
             this._height = height;
+            this._materialName = materialName;
+            this._material = TSEngine.MaterialManager.getMaterial(this._materialName);
         }
+        Object.defineProperty(Sprite.prototype, "name", {
+            get: function () {
+                return this._name;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Sprite.prototype.destroy = function () {
+            this._buffer.destroy();
+            TSEngine.MaterialManager.releaseMaterial(this._materialName);
+            this._material = undefined;
+            this._materialName = undefined;
+        };
+        /**
+         * Loading routines on sprite
+         */
         Sprite.prototype.load = function () {
-            this._buffer = new TSEngine.GLBuffer(3);
+            this._buffer = new TSEngine.GLBuffer(5);
             var positionAttrib = new TSEngine.AttribInfo();
             positionAttrib.loc = 0;
             positionAttrib.offset = 0;
             positionAttrib.size = 3;
             this._buffer.addAttribLocation(positionAttrib);
+            var texCoordAttrib = new TSEngine.AttribInfo();
+            texCoordAttrib.loc = 1;
+            texCoordAttrib.offset = 3;
+            texCoordAttrib.size = 2;
+            this._buffer.addAttribLocation(texCoordAttrib);
             var vertices = [
-                //x, y, z
-                0.0, 0.0, 0.0,
-                0.0, this._height, 0.0,
-                this._width, this._height, 0.0,
-                this._width, this._height, 0.0,
-                this._width, 0.0, 0.0,
-                0.0, 0.0, 0.0
+                //x, y, z       ,u, v
+                0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, this._height, 0.0, 0.0, 1.0,
+                this._width, this._height, 0.0, 1.0, 1.0,
+                this._width, this._height, 0.0, 1.0, 1.0,
+                this._width, 0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0
             ];
             this._buffer.pushBackData(vertices);
             this._buffer.upload();
             this._buffer.unbind();
         };
+        /**
+         * Updates routines of sprite.
+         * @param time The delta time in milliseconds since last update call.
+         */
         Sprite.prototype.update = function (time) {
         };
-        Sprite.prototype.draw = function () {
+        Sprite.prototype.draw = function (shader) {
+            var modelLocation = shader.getUniformLocation("u_model");
+            TSEngine.gl.uniformMatrix4fv(modelLocation, false, new Float32Array(TSEngine.Mat4x4.translation(this.position).data));
+            var colorLocation = shader.getUniformLocation("u_tint");
+            TSEngine.gl.uniform4fv(colorLocation, this._material.tint.toFloat32Array());
+            if (this._material.diffuseTexture !== undefined) {
+                this._material.diffuseTexture.activateAndBind(0);
+                var diffuseLocation = shader.getUniformLocation("u_diffuse");
+                TSEngine.gl.uniform1i(diffuseLocation, 0);
+            }
             this._buffer.bind();
             this._buffer.draw();
         };
         return Sprite;
     }());
     TSEngine.Sprite = Sprite;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var LEVEL = 0;
+    var BORDER = 0;
+    var TEMP_IMAGE_DATA = new Uint8Array([255, 255, 255, 255]);
+    var Texture = /** @class */ (function () {
+        function Texture(name, width, height) {
+            if (width === void 0) { width = 1; }
+            if (height === void 0) { height = 1; }
+            this._isLoaded = false;
+            this._name = name;
+            this._width = width;
+            this._height = height;
+            this._handle = TSEngine.gl.createTexture();
+            TSEngine.Message.subscribe(TSEngine.MESSAGE_ASSET_LOADER_ASSET_LOADED + this._name, this);
+            this.bind();
+            TSEngine.gl.texImage2D(TSEngine.gl.TEXTURE_2D, LEVEL, TSEngine.gl.RGBA, 1, 1, BORDER, TSEngine.gl.RGBA, TSEngine.gl.UNSIGNED_BYTE, TEMP_IMAGE_DATA);
+            var asset = TSEngine.AssetManager.getAsset(this.name);
+            if (asset !== undefined) {
+                this.loadTextureFromAsset(asset);
+            }
+        }
+        Object.defineProperty(Texture.prototype, "name", {
+            get: function () {
+                return this._name;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Texture.prototype, "isLoaded", {
+            get: function () {
+                return this._isLoaded;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Texture.prototype, "width", {
+            get: function () {
+                return this._width;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Texture.prototype, "height", {
+            get: function () {
+                return this._height;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Texture.prototype.destroy = function () {
+            TSEngine.gl.deleteTexture(this._handle);
+        };
+        Texture.prototype.activateAndBind = function (textureUnit) {
+            if (textureUnit === void 0) { textureUnit = 0; }
+            TSEngine.gl.activeTexture(TSEngine.gl.TEXTURE0 + textureUnit);
+            this.bind();
+        };
+        Texture.prototype.bind = function () {
+            TSEngine.gl.bindTexture(TSEngine.gl.TEXTURE_2D, this._handle);
+        };
+        Texture.prototype.unbind = function () {
+            TSEngine.gl.bindTexture(TSEngine.gl.TEXTURE_2D, undefined);
+        };
+        Texture.prototype.onMessage = function (message) {
+            if (message.code === TSEngine.MESSAGE_ASSET_LOADER_ASSET_LOADED + this._name) {
+                this.loadTextureFromAsset(message.context);
+            }
+        };
+        Texture.prototype.loadTextureFromAsset = function (asset) {
+            this._width = asset.width;
+            this._height = asset.height;
+            this.bind();
+            TSEngine.gl.texImage2D(TSEngine.gl.TEXTURE_2D, LEVEL, TSEngine.gl.RGBA, TSEngine.gl.RGBA, TSEngine.gl.UNSIGNED_BYTE, asset.data);
+            if (this.isPowerOf2()) {
+                TSEngine.gl.generateMipmap(TSEngine.gl.TEXTURE_2D);
+            }
+            else {
+                /** Do not generate a mipmap and clamp wrapping to edge. */
+                TSEngine.gl.texParameteri(TSEngine.gl.TEXTURE_2D, TSEngine.gl.TEXTURE_WRAP_S, TSEngine.gl.CLAMP_TO_EDGE);
+                TSEngine.gl.texParameteri(TSEngine.gl.TEXTURE_2D, TSEngine.gl.TEXTURE_WRAP_T, TSEngine.gl.CLAMP_TO_EDGE);
+                TSEngine.gl.texParameteri(TSEngine.gl.TEXTURE_2D, TSEngine.gl.TEXTURE_MIN_FILTER, TSEngine.gl.LINEAR);
+            }
+            this._isLoaded = true;
+        };
+        Texture.prototype.isPowerOf2 = function () {
+            return (this.isValuePowerOf2(this._width) && this.isValuePowerOf2(this._height));
+        };
+        Texture.prototype.isValuePowerOf2 = function (value) {
+            return (value & (value - 1)) == 0;
+        };
+        return Texture;
+    }());
+    TSEngine.Texture = Texture;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var TextureReferenceNode = /** @class */ (function () {
+        function TextureReferenceNode(texture) {
+            this.referenceCount = 1;
+            this.texture = texture;
+        }
+        return TextureReferenceNode;
+    }());
+    var TextureManager = /** @class */ (function () {
+        function TextureManager() {
+        }
+        TextureManager.getTexture = function (textureName) {
+            if (TextureManager._textures[textureName] === undefined) {
+                var texture = new TSEngine.Texture(textureName);
+                TextureManager._textures[textureName] = new TextureReferenceNode(texture);
+            }
+            else {
+                TextureManager._textures[textureName].referenceCount++;
+            }
+            return TextureManager._textures[textureName].texture;
+        };
+        TextureManager.releaseTexture = function (textureName) {
+            if (TextureManager._textures[textureName] === undefined) {
+                console.warn("A texture named ".concat(textureName, " doesn't exist and cannot be released."));
+            }
+            else {
+                TextureManager._textures[textureName].referenceCount--;
+                if (TextureManager._textures[textureName].referenceCount < 1) {
+                    TextureManager._textures[textureName].texture.destroy();
+                    TextureManager._textures[textureName] = undefined;
+                    delete TextureManager._textures[textureName];
+                }
+            }
+        };
+        TextureManager._textures = {};
+        return TextureManager;
+    }());
+    TSEngine.TextureManager = TextureManager;
 })(TSEngine || (TSEngine = {}));
 var TSEngine;
 (function (TSEngine) {
@@ -434,6 +974,53 @@ var TSEngine;
         return Mat4x4;
     }());
     TSEngine.Mat4x4 = Mat4x4;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    /**
+     * Two component vector (x, y).
+     */
+    var Vec2 = /** @class */ (function () {
+        /**
+         * Creates new vec2.
+         * @param x The x component.
+         * @param y The y component.
+         */
+        function Vec2(x, y) {
+            if (x === void 0) { x = 0; }
+            if (y === void 0) { y = 0; }
+            this._x = x;
+            this._y = y;
+        }
+        Object.defineProperty(Vec2.prototype, "x", {
+            get: function () {
+                return this._x;
+            },
+            set: function (value) {
+                this._x = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Object.defineProperty(Vec2.prototype, "y", {
+            get: function () {
+                return this._y;
+            },
+            set: function (value) {
+                this._y = value;
+            },
+            enumerable: false,
+            configurable: true
+        });
+        Vec2.prototype.toArray = function () {
+            return [this._x, this._y];
+        };
+        Vec2.prototype.toFloat32Array = function () {
+            return new Float32Array(this.toArray());
+        };
+        return Vec2;
+    }());
+    TSEngine.Vec2 = Vec2;
 })(TSEngine || (TSEngine = {}));
 var TSEngine;
 (function (TSEngine) {
@@ -485,5 +1072,122 @@ var TSEngine;
         return Vec3;
     }());
     TSEngine.Vec3 = Vec3;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var MessagePriority;
+    (function (MessagePriority) {
+        MessagePriority[MessagePriority["NORMAL"] = 0] = "NORMAL";
+        MessagePriority[MessagePriority["HIGH"] = 1] = "HIGH";
+    })(MessagePriority = TSEngine.MessagePriority || (TSEngine.MessagePriority = {}));
+    var Message = /** @class */ (function () {
+        function Message(code, sender, context, priority) {
+            if (priority === void 0) { priority = MessagePriority.NORMAL; }
+            this.code = code;
+            this.sender = sender;
+            this.context = context;
+            this.priority = priority;
+        }
+        Message.send = function (code, sender, context) {
+            TSEngine.MessageBus.post(new Message(code, sender, context, MessagePriority.NORMAL));
+        };
+        Message.sendPriority = function (code, sender, context) {
+            TSEngine.MessageBus.post(new Message(code, sender, context, MessagePriority.HIGH));
+        };
+        Message.subscribe = function (code, handler) {
+            TSEngine.MessageBus.addSubscription(code, handler);
+        };
+        Message.unsubscribe = function (code, handler) {
+            TSEngine.MessageBus.removeSubscription(code, handler);
+        };
+        return Message;
+    }());
+    TSEngine.Message = Message;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    /** Message manager responsible for sending messages across the system. */
+    var MessageBus = /** @class */ (function () {
+        /** Hidden constructor to prevent instantiation. */
+        function MessageBus() {
+        }
+        /**
+         * Add a subscription to code using provided handler.
+         * @param code The code to listen for.
+         * @param handler The handler to be subscribed.
+         */
+        MessageBus.addSubscription = function (code, handler) {
+            if (MessageBus._subscriptions[code] === undefined) {
+                MessageBus._subscriptions[code] = [];
+            }
+            if (MessageBus._subscriptions[code].indexOf(handler) !== -1) {
+                console.warn("Attempting to add a duplicate handler to code: " + code + ". Subscription not added.");
+            }
+            else {
+                MessageBus._subscriptions[code].push(handler);
+            }
+        };
+        /**
+         * Remove subscription from code using provided handler.
+         * @param code The code to listen for.
+         * @param handler The handler to be removed.
+         */
+        MessageBus.removeSubscription = function (code, handler) {
+            if (MessageBus._subscriptions[code] === undefined) {
+                console.warn("Cannot unsubscribe handler from code: " + code + ". Because that code is not subscribed.");
+                return;
+            }
+            var nodeIndex = MessageBus._subscriptions[code].indexOf(handler);
+            if (nodeIndex !== -1) {
+                MessageBus._subscriptions[code].splice(nodeIndex, 1);
+            }
+        };
+        /**
+         * Posts message to message system.
+         * @param message The message to be sent.
+         */
+        MessageBus.post = function (message) {
+            console.log("Message posted: ", message);
+            var handlers = MessageBus._subscriptions[message.code];
+            if (handlers === undefined) {
+                return;
+            }
+            for (var _i = 0, handlers_1 = handlers; _i < handlers_1.length; _i++) {
+                var h = handlers_1[_i];
+                if (message.priority === TSEngine.MessagePriority.HIGH) {
+                    h.onMessage(message);
+                }
+                else {
+                    MessageBus._normalMessageQueue.push(new TSEngine.MessageSubscriptionNode(message, h));
+                }
+            }
+        };
+        MessageBus.update = function (time) {
+            if (MessageBus._normalMessageQueue.length === 0) {
+                return;
+            }
+            var messageLimit = Math.min(MessageBus._normalQueueMessagePerUpdate, MessageBus._normalMessageQueue.length);
+            for (var i = 0; i < messageLimit; ++i) {
+                var node = MessageBus._normalMessageQueue.pop();
+                node.handler.onMessage(node.message);
+            }
+        };
+        MessageBus._subscriptions = {};
+        MessageBus._normalQueueMessagePerUpdate = 10;
+        MessageBus._normalMessageQueue = [];
+        return MessageBus;
+    }());
+    TSEngine.MessageBus = MessageBus;
+})(TSEngine || (TSEngine = {}));
+var TSEngine;
+(function (TSEngine) {
+    var MessageSubscriptionNode = /** @class */ (function () {
+        function MessageSubscriptionNode(message, handler) {
+            this.message = message;
+            this.handler = handler;
+        }
+        return MessageSubscriptionNode;
+    }());
+    TSEngine.MessageSubscriptionNode = MessageSubscriptionNode;
 })(TSEngine || (TSEngine = {}));
 //# sourceMappingURL=app.js.map

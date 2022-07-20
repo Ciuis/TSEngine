@@ -4,11 +4,10 @@ namespace TSEngine {
     /**
      * The main game engine class.
      */
-
     export class Engine {
 
         private _canvas: HTMLCanvasElement;
-        private _shader: Shader;
+        private _basicShader: BasicShader;
         private _projection: Mat4x4;
 
         private _sprite: Sprite;
@@ -25,18 +24,23 @@ namespace TSEngine {
         public start(): void {
 
             this._canvas = GLUtilities.init();
+            AssetManager.init();
 
             gl.clearColor( 0, 0, 0, 1 );
 
-            this.loadShaders();
-            this._shader.use();
+            this._basicShader = new BasicShader();
+            this._basicShader.use();
+
+            //Load materials
+            MaterialManager.registerMaterial( new Material( "crate", "assets/textures/crate.png", new Color(0, 128, 255, 255) ) );
 
             // Load
-            this._projection = Mat4x4.orthographic( 0, this._canvas.width, 0, this._canvas.height, -100.0, 100.0 );
+            this._projection = Mat4x4.orthographic( 0, this._canvas.width, this._canvas.height, 0, -100.0, 100.0 );
 
-            this._sprite = new Sprite( "test" );
+            this._sprite = new Sprite( "test", "crate" );
             this._sprite.load();
             this._sprite.position.x = 200;
+            this._sprite.position.y = 100;
 
             this.resize();
             this.mainLoop();
@@ -50,47 +54,24 @@ namespace TSEngine {
                 this._canvas.width = window.innerWidth;
                 this._canvas.height = window.innerHeight;
 
-                gl.viewport( -1, 1, 1, -1 );
+                gl.viewport( 0, 0, gl.canvas.width, gl.canvas.height );
+                this._projection = Mat4x4.orthographic( 0, this._canvas.width, this._canvas.height, 0, -100.0, 100.0 );
+
             }
         }
 
         private mainLoop(): void {
+            MessageBus.update( 0 );
+
             gl.clear( gl.COLOR_BUFFER_BIT );
 
             // Set uniforms.
-            let colorPosition = this._shader.getUniformLocation( "u_color" );
-            gl.uniform4f( colorPosition, 1, 0.5, 0, 1);
-
-            let projectionPosition = this._shader.getUniformLocation( "u_projection" );
+            let projectionPosition = this._basicShader.getUniformLocation( "u_projection" );
             gl.uniformMatrix4fv( projectionPosition, false, new Float32Array( this._projection.data ) );
 
-            let modelLocation = this._shader.getUniformLocation( "u_model" );
-            gl.uniformMatrix4fv( modelLocation, false, new Float32Array( Mat4x4.translation( this._sprite.position ).data ) );
-
-            this._sprite.draw();
+            this._sprite.draw( this._basicShader );
 
             requestAnimationFrame( this.mainLoop.bind( this ) );
-        }
-
-        private loadShaders(): void {
-            let vertexShaderSource = `
-                        attribute vec3 a_position;
-                        
-                        uniform mat4 u_projection;
-                        uniform mat4 u_model;
-                          
-                        void main() {
-                            gl_Position = u_projection * u_model * vec4(a_position, 1.0);
-                        }`;
-            let fragmentShaderSource = `
-                        precision mediump float;
-                        
-                        uniform vec4 u_color;
-                        
-                        void main() {
-                            gl_FragColor = u_color;
-                        }`;
-            this._shader = new Shader( "base", vertexShaderSource, fragmentShaderSource );
         }
     }
 }

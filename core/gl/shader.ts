@@ -1,9 +1,10 @@
+
 namespace TSEngine {
 
     /**
      * WebGL shader
      */
-    export class Shader {
+    export abstract class Shader {
 
         private _name: string;
         private _program: WebGLProgram;
@@ -13,18 +14,9 @@ namespace TSEngine {
         /**
          * Creates new shader.
          * @param name The name of shader.
-         * @param vertexSrc The source of vertex shader.
-         * @param fragmentSrc The source of fragment shader.
          */
-        public constructor( name: string, vertexSrc: string, fragmentSrc: string ) {
-            let vertexShader = this.loadShader( vertexSrc, gl.VERTEX_SHADER );
-            let fragmentShader = this.loadShader( fragmentSrc, gl.FRAGMENT_SHADER );
-
-            this.createProgram( vertexShader, fragmentShader );
-
-            this.detectAttributes();
-            this.detectUniforms();
-
+        public constructor( name: string ) {
+            this._name = name;
         }
 
         /**
@@ -63,6 +55,16 @@ namespace TSEngine {
             }
 
             return this._uniforms[name];
+        }
+
+        protected load( vertexSrc: string, fragmentSrc: string ): void {
+            let vertexShader = this.loadShader( vertexSrc, gl.VERTEX_SHADER );
+            let fragmentShader = this.loadShader( fragmentSrc, gl.FRAGMENT_SHADER );
+
+            this.createProgram( vertexShader, fragmentShader );
+
+            this.detectAttributes();
+            this.detectUniforms();
         }
 
         private loadShader( source: string, shaderType: number ): WebGLShader {
